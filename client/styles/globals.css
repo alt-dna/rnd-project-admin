@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+img{
+    max-height: 100%;
+}
+input, textarea, select{
+    @apply border border-gray-200 rounded-sm w-full py-2 px-3;
+    @apply mb-2;
+}
+
+form label{
+    @apply text-xs text-gray-600 font-bold uppercase block mt-6 mb-1
+}
+
+input:focus, textarea:focus, select:focus{
+    @apply border-blue-900;
+}
+h1{
+    @apply text-gray-800 mb-4 text-xl;
+}
+h2{
+    @apply text-gray-800 mt-6 mb-2 text-lg;
+}
+label{
+    @apply text-gray-600 text-sm;
+}
+.btn-primary{
+    @apply bg-primary text-white px-4 py-1 rounded-sm shadow-sm;
+}
+table.basic{
+    @apply w-full bg-white rounded-sm shadow-md;
+}
+table.basic thead tr td,
+table.basic thead tr th
+{
+    @apply text-sm text-gray-600 uppercase border-b border-gray-200 px-4 py-2 bg-blue-100;
+}
+table.basic tr td{
+    @apply px-4 py-1 border border-blue-200;
+}
+table.basic a{
+    @apply bg-blue-900 text-white px-4 rounded-md inline-flex mx-1 items-center gap-1 text-sm py-1;
+}
+.btn-default, .btn-red{
+    @apply px-4 py-1 rounded-md;
+}
+.btn-red{
+    @apply bg-red-200 text-red-600 px-4 py-1 rounded-sm shadow-sm;
+}
+.btn-default{
+    @apply bg-white text-gray-800 px-4 py-1 rounded-sm border border-gray-200 shadow-sm;
+}
+
+.custom-link {
+  background-color: white !important;
+  color: #1F3A8A !important;
+}
+
+.custom-link:hover {
+
+    color: #16A34A !important;
+}
+
+
+.tabs {
+  display: flex;
+  justify-content: center;
+}
+
+.tab {
+  padding: 10px 20px;
+  margin: 0 5px;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background-color: #f0f0f0;
+  transition: background-color 0.3s;
+}
+
+.tab.active {
+  background-color: #1F3A8A;
+  color: white;
+  border-color: #1F3A8A;
+}
+
+.tab:hover:not(.active) {
+  background-color: #e0e0e0;
+}
+
+.camera-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.camera-feed {
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 15px;
+  background-color: white;
+}
+
+.camera-feed h3 {
+  margin-top: 0;
+}
+
+.camera-feed video {
+  width: 100%;
+  border-radius: 5px;
+}
+
+.camera-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+@media (min-width: 768px) {
+  .camera-container {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .camera-container {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+}
+
+.accident-log {
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 80vh;
+}
+
+.accident-card {
+  background-color: #fff;
+  padding: 8px;
+  border-radius: 8px;
+  margin-top: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.buttons button {
+  flex: 1;
+}

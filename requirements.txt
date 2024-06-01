@@ -1,0 +1,10 @@
+flask
+aiortc
+opencv-python-headless
+ultralytics
+av
+flask-cors
+pymongo
+python-dotenv
+boto3
+flask-socketio
