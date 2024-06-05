@@ -11,6 +11,7 @@ S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY')
 S3_SECRET_KEY = os.getenv('S3_SECRET_KEY')
 S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 S3_REGION = os.getenv('S3_REGION')
+S3_FOLDER_NAME = 'back-screenshot/'
 
 
 def upload_to_s3(frame, file_name):
@@ -25,15 +26,16 @@ def upload_to_s3(frame, file_name):
     )
 
     try:
+        s3_key = S3_FOLDER_NAME + file_name
         s3_client.put_object(
             Bucket=S3_BUCKET_NAME,
-            Key=file_name,
+            Key=s3_key,
             Body=frame_bytes,
             ACL='public-read',
             ContentType='image/jpeg'
         )
-        print(f"Upload Successful: {file_name}")
-        return f"https://{S3_BUCKET_NAME}.s3.{S3_REGION}.amazonaws.com/{file_name}"
+        print(f"Upload Successful: {s3_key}")
+        return f"https://{S3_BUCKET_NAME}.s3.{S3_REGION}.amazonaws.com/{s3_key}"
     except FileNotFoundError:
         print("File not found")
         return None

@@ -29,6 +29,7 @@ label{
 .btn-primary{
     @apply bg-primary text-white px-4 py-1 rounded-sm shadow-sm;
 }
+
 table.basic{
     @apply w-full bg-white rounded-sm shadow-md;
 }
@@ -89,12 +90,6 @@ table.basic a{
   background-color: #e0e0e0;
 }
 
-.camera-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
-}
-
 .camera-feed {
   border: 1px solid #ccc;
   border-radius: 5px;
@@ -115,6 +110,7 @@ table.basic a{
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
+  max-height: 300px;
 }
 
 @media (min-width: 768px) {
@@ -142,6 +138,7 @@ table.basic a{
   padding: 8px;
   border-radius: 8px;
   margin-top: 8px;
+  max-height: 300px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
@@ -153,4 +150,37 @@ table.basic a{
 
 .buttons button {
   flex: 1;
+}
+
+.img-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.img-content {
+  position: relative;
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 90%;
+  max-height: 90%;
+  overflow: auto;
+}
+
+.img-close {
+  position: absolute;
+  top: 0;
+  right: 5px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
 }

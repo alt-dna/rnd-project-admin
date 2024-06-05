@@ -1,23 +1,22 @@
+import threading
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
 from detection_model import process_frames
-from model import insert_accident, find_accidents, cameras_collection, accidents_collection
-from notification import subscribe, notify_new_accident
+from model import cameras_collection
 from bson import ObjectId
 import cv2
 import os
 from threading import Thread, Lock
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import time
 import asyncio
 import urllib.parse
+from collections import defaultdict, deque
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
 
-global video_sources
 detection_states = {}
 state_lock = Lock()
 pcs = set()
@@ -26,46 +25,66 @@ executor = ThreadPoolExecutor(max_workers=8)
 
 logging.basicConfig(level=logging.INFO)
 
+frame_queues = defaultdict(lambda: deque(maxlen=10))
+
 
 def video_streaming(video_source, camera_id, location):
+    thread_id = threading.get_ident()
+    logging.info(f"Start video stream {camera_id} on {thread_id}")
     cap = cv2.VideoCapture(video_source)
+    if not cap.isOpened():
+        logging.error(f"Failed to open source for camera {camera_id} on {thread_id}")
+        return
+
     fps = cap.get(cv2.CAP_PROP_FPS)
     desired_fps = 10
+
+    if fps <= 0:
+        logging.warning(f"Invalid FPS ({fps}) for camera {camera_id} on {thread_id}")
+        fps = 30
+
     frame_interval = int(fps / desired_fps)
+    if frame_interval <= 0:
+        frame_interval = 1
+
     frame_count = 0
-    batch_size = 4
+    batch_size = 8
     frames = []
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
+            logging.error(f"Failed to read frame from camera {camera_id} on {thread_id}")
             break
 
         if frame_count % frame_interval == 0:
             frames.append(frame)
             if len(frames) == batch_size:
+                logging.info(f"Processing batch of frames for camera {camera_id} on {thread_id}")
                 future = executor.submit(process_frames, frames, camera_id, location)
                 processed_frames = future.result()
                 for processed_frame in processed_frames:
                     ret, buffer = cv2.imencode('.jpg', processed_frame)
                     if ret:
                         frame_bytes = buffer.tobytes()
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                        frame_queues[camera_id].append(frame_bytes)
+                        logging.info(f"Frame appended to queue for camera {camera_id} on {thread_id}")
                 frames = []
         frame_count += 1
 
     if frames:
+        logging.info(f"Processing remaining frames for camera {camera_id} on {thread_id}")
         future = executor.submit(process_frames, frames, camera_id, location)
         processed_frames = future.result()
         for processed_frame in processed_frames:
             ret, buffer = cv2.imencode('.jpg', processed_frame)
             if ret:
                 frame_bytes = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                frame_queues[camera_id].append(frame_bytes)
+                logging.info(f"Frame appended to queue for camera {camera_id} on {thread_id}")
 
     cap.release()
+    logging.info(f"Video capture released for camera {camera_id} on {thread_id}")
 
 
 @app.route('/processed_video_feed')
@@ -99,77 +118,25 @@ def processed_video_feed():
         camera_url = urllib.parse.unquote(camera_url)
         logging.info(f"Using camera URL: {camera_url}")
 
-    return Response(video_streaming(camera_url, camera_id, location),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    if camera_id and camera_id not in frame_queues:
+        logging.info(f"Starting video streaming for camera {camera_id}")
+        thread = Thread(target=video_streaming, args=(camera_url, camera_id, location))
+        thread.daemon = True
+        thread.start()
 
+    def generate():
+        while True:
+            with state_lock:
+                if frame_queues[camera_id]:
+                    frame_bytes = frame_queues[camera_id].popleft()
+                    logging.info(f"Yielding frame for camera {camera_id}")
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                else:
+                    logging.info(f"Frame queue is empty for camera {camera_id}")
+                    time.sleep(0.1)
 
-@app.route('/detection_results', methods=['GET'])
-def detection_results():
-    camera_id = request.args.get('camera_id')
-    if camera_id in detection_states:
-        state = detection_states[camera_id]
-        results = {
-            'consecutive_accidents': state['consecutive_accidents'],
-            'alert_trigger': state['alert_trigger'],
-            'accident_free_frames': state['accident_free_frames'],
-            'last_detected': state['last_detected'],
-            'location': state['location'],
-            'screenshot': state.get('screenshot')
-        }
-        return jsonify(results)
-    return jsonify({}), 404
-
-
-@app.route('/api/accidents', methods=['GET'])
-def get_accidents():
-    camera_id = request.args.get('camera_id')
-    status_filter = request.args.get('status')
-
-    try:
-        query = {}
-        if camera_id:
-            query['cameraId'] = ObjectId(camera_id)
-        if status_filter:
-            query['status'] = status_filter
-
-        accidents = list(accidents_collection.find(query).sort("time_detected", -1))
-
-        for accident in accidents:
-            accident['_id'] = str(accident['_id'])
-            accident['cameraId'] = str(accident['cameraId'])
-
-        return jsonify(accidents), 200
-    except Exception as e:
-        logging.error(f"Error fetching accidents: {e}")
-        return jsonify({"error": "Error fetching accidents"}), 500
-
-
-@app.route('/confirm_accident', methods=['POST'])
-def confirm_accident():
-    data = request.json
-    accident_id = data.get('accident_id')
-    is_false_alarm = data.get('isFalseAlarm', False)
-    processed_by = data.get('processedBy', {})
-
-    try:
-        accident = accidents_collection.find_one({"_id": ObjectId(accident_id)})
-        if not accident:
-            return jsonify({"error": "Accident not found"}), 404
-
-        update_data = {
-            "isFalseAlarm": is_false_alarm,
-            "processedBy": processed_by,
-            "status": "false alarm" if is_false_alarm else "processed"
-        }
-
-        accidents_collection.update_one({"_id": ObjectId(accident_id)}, {"$set": update_data})
-
-        notify_new_accident(update_data)
-
-        return jsonify({"message": "Accident status updated successfully"}), 200
-    except Exception as e:
-        logging.error(f"Error updating accident status: {e}", exc_info=True)
-        return jsonify({"error": "Error updating accident status"}), 500
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route("/start_processing", methods=["POST"])
@@ -179,10 +146,11 @@ def start_processing():
     for camera in cameras:
         video_source = camera['cameraUrl']
         camera_id = str(camera['_id'])
-        video_sources.append((video_source, camera_id))
+        video_sources.append((video_source, camera_id, camera.get('cameraFullAddress', 'unknown')))
 
-    for video_source, camera_id in video_sources:
-        thread = Thread(target=video_streaming, args=(video_source, camera_id))
+    for video_source, camera_id, location in video_sources:
+        thread = Thread(target=video_streaming, args=(video_source, camera_id, location))
+        thread.daemon = True
         thread.start()
 
     return jsonify({"status": "Processing started for all cameras"})
@@ -194,16 +162,6 @@ async def shutdown():
     await asyncio.gather(*tasks)
     pcs.clear()
     return jsonify({"result": "shutdown"})
-
-
-@socketio.on('connect')
-def handle_connect():
-    logging.info('Client connected')
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    logging.info('Client disconnected')
 
 
 if __name__ == "__main__":

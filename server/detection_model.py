@@ -1,21 +1,31 @@
+import os
 from ultralytics import YOLO
 import cv2
+from collections import defaultdict
+import numpy as np
 import torch
+import asyncio
 import time
 import logging
 from datetime import datetime
 from model import insert_accident, get_camera_details
 from bson import ObjectId
 from upload import upload_to_s3
-from notification import notify_new_accident
 
-model = YOLO("../server/YOLO-Weights/best.pt")
+
 classNames = ["accident", "non-accident"]
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+model = YOLO("../server/YOLO-Weights/best.pt")
 model.to(device)
+
 confidence_threshold = 0.7
 
 detection_states = {}
+track_history = defaultdict(lambda: [])
+frame_retain_default = 10
+overlap_thres_default = 0.4
+height_multiplier_default = 3
 
 
 def initialize_detection_state(camera_id, location):
@@ -64,8 +74,6 @@ def manage_detection_states(camera_id, detected_accident, frame, location):
                 }
                 logging.info(f"Inserting accident data: {accident_data}")
                 insert_accident(accident_data)
-                state['accident_data'] = accident_data
-                asyncio.run(notify_new_accident(accident_data))  # Notify subscribers about the new accident
     else:
         state['accident_free_frames'] += 1
 
@@ -79,12 +87,12 @@ def process_frames(frames, camera_id, location):
     start_time = time.time()
     frames_rgb = [cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) for frame in frames]
 
-    # Perform batch inference
     results = model(frames_rgb)
     inference_time = time.time() - start_time
     logging.info(f"Batch inference time: {inference_time:.4f} seconds")
 
     processed_frames = []
+    frame_counter = 0
 
     for frame, r in zip(frames, results):
         detected_accident = False
@@ -101,10 +109,31 @@ def process_frames(frames, camera_id, location):
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
                     label = f'{class_name} {confidence:.2f}'
                     cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, text_thickness)
-                    break
+
+                    if box.id is not None:
+                        track_id = int(box.id[0])
+                        track = track_history[track_id]
+                        track.append((frame_counter, (x1 + x2) / 2, (y1 + y2) / 2))  # center point
+
+                        points = np.array(track, dtype=np.float32)
+                        points = points[points[:, 0] > (frame_counter - frame_retain_default)]
+
+                        if len(points) >= 2:
+                            points_width = np.abs(points[-1, 1] - points[0, 1])
+                            points_height = np.abs(points[-1, 2] - points[0, 2])
+
+                            if (x2 - x1) > (y2 - y1):
+                                multiplier_ratio = (x2 - x1) / (y2 - y1) - 1
+                                overlap = (points_width + points_height * height_multiplier_default * multiplier_ratio) / ((x2 - x1) + (y2 - y1))
+                            else:
+                                overlap = (points_width + points_height) / ((x2 - x1) + (y2 - y1))
+
+                            if round(overlap, 4) > overlap_thres_default:
+                                detected_accident = True
 
         manage_detection_states(camera_id, detected_accident, frame, location)
         processed_frames.append(frame)
+        frame_counter += 1
 
     total_time = time.time() - start_time
     logging.info(f"Batch total processing time: {total_time:.4f} seconds")

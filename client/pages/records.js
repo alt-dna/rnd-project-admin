@@ -1,24 +1,43 @@
-import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { formatDate } from "@/lib/utils";
 import Spinner from "@/components/Spinner";
+import { formatDate } from "@/lib/utils";
+import FilterOptions from "@/components/FilterOptions";
+import Layout from "@/components/Layout";
+import { useSession } from "next-auth/react";
+import ImageEnlarger from "@/components/ImageEnlarger";
+import Papa from 'papaparse';
 
 export default function AccidentsPage() {
+  const { data: session } = useSession();
   const [accidents, setAccidents] = useState([]);
+  const [cameras, setCameras] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedCameraName, setSelectedCameraName] = useState('');
-  const [selectedCity, setSelectedCity] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedWard, setSelectedWard] = useState('');
+  const [selectedStreet, setSelectedStreet] = useState('');
+  const [selectedAdmin, setSelectedAdmin] = useState('');
+  const [districts, setDistricts] = useState([]);
+  const [wards, setWards] = useState([]);
+  const [streets, setStreets] = useState([]);
+  const [adminNames, setAdminNames] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [modalImage, setModalImage] = useState('');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState('');
 
   const fetchAccidents = async () => {
     setIsLoading(true);
     setError('');
     try {
-      const res = await axios.get('http://localhost:5000/api/accidents');
+      const res = await axios.get('/api/accidents');
       setAccidents(res.data);
+      const adminSet = new Set(res.data.map(accident => accident.processedBy?.name).filter(Boolean));
+      setAdminNames(Array.from(adminSet));
     } catch (err) {
       setError('Failed to fetch accidents. Please try again.');
       console.error(err);
@@ -27,8 +46,28 @@ export default function AccidentsPage() {
     }
   };
 
+  const fetchCameras = async () => {
+    try {
+      const res = await axios.get('/api/cameras');
+      setCameras(res.data);
+    } catch (err) {
+      console.error("Failed to fetch cameras:", err);
+    }
+  };
+
+  const fetchLocations = async () => {
+    try {
+      const res = await axios.get('/api/locations');
+      setDistricts(res.data.district || []);
+    } catch (err) {
+      console.error("Failed to fetch locations:", err);
+    }
+  };
+
   useEffect(() => {
     fetchAccidents();
+    fetchCameras();
+    fetchLocations();
   }, []);
 
   const uniqueValues = (key) => {
@@ -42,13 +81,70 @@ export default function AccidentsPage() {
     }))).filter(value => value !== undefined);
   };
 
+  const stripStreetNumbers = (street) => {
+    return street.replace(/^\d+\s*/, '');
+  };
+
   const filterAccidents = () => {
-    return accidents.filter(accident =>
-      (!selectedStatus || accident.status === selectedStatus) &&
-      (!selectedCameraName || (accident.cameraDetails && accident.cameraDetails.cameraName === selectedCameraName)) &&
-      (!selectedCity || accident.location.includes(selectedCity)) &&
-      (!selectedDistrict || accident.location.includes(selectedDistrict))
-    );
+    return accidents.filter(accident => {
+      const camera = accident.cameraId;
+      const accidentDate = new Date(accident.time_detected);
+      const accidentYear = accidentDate.getFullYear();
+      const accidentMonth = accidentDate.getMonth() + 1;
+      return (
+        (!selectedStatus || accident.status === selectedStatus) &&
+        (!selectedCameraName || camera?.cameraName === selectedCameraName) &&
+        (!selectedDistrict || camera?.cameraDistrict === selectedDistrict) &&
+        (!selectedWard || camera?.cameraWard === selectedWard) &&
+        (!selectedStreet || stripStreetNumbers(camera?.cameraStreet) === stripStreetNumbers(selectedStreet)) &&
+        (!selectedAdmin || accident.processedBy?.name === selectedAdmin) &&
+        (!selectedYear || accidentYear === parseInt(selectedYear)) &&
+        (!selectedMonth || accidentMonth === parseInt(selectedMonth))
+      );
+    });
+  };
+
+  const resetFilters = () => {
+    setSelectedStatus('');
+    setSelectedCameraName('');
+    setSelectedDistrict('');
+    setSelectedWard('');
+    setSelectedStreet('');
+    setSelectedAdmin('');
+    setWards([]);
+    setStreets([]);
+    setSelectedYear(new Date().getFullYear());
+    setSelectedMonth('');
+  };
+
+  const handleImageClick = (imageSrc) => {
+    setModalImage(imageSrc);
+    setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setModalImage('');
+  };
+
+  const exportToCSV = () => {
+    const dataToExport = filterAccidents().map(accident => ({
+      accidentId: accident._id,
+      timeDetected: formatDate(accident.time_detected),
+      cameraName: accident.cameraId?.cameraName || 'N/A',
+      location: accident.cameraId?.cameraFullAddress || 'N/A',
+      processedBy: accident.processedBy?.name || 'N/A',
+      status: accident.status
+    }));
+    const csv = Papa.unparse(dataToExport);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'accidents_data.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -56,62 +152,44 @@ export default function AccidentsPage() {
       <h1>Recorded Accidents</h1>
       {error && <p className="text-red-500 mt-2">{error}</p>}
 
-      <div className="flex gap-4 mb-5">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Status</label>
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-          >
-            <option value="">All</option>
-            {uniqueValues('status').map(status => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
+      <div className="flex justify-between items-center mb-4 mt-8 gap-4">
+        <div className="flex-grow">
+          <FilterOptions
+            selectedFilter={selectedFilter}
+            setSelectedFilter={setSelectedFilter}
+            resetFilters={resetFilters}
+            cameras={cameras}
+            districts={districts}
+            wards={wards}
+            setWards={setWards}
+            streets={streets}
+            setStreets={setStreets}
+            adminNames={adminNames}
+            selectedStatus={selectedStatus}
+            setSelectedStatus={setSelectedStatus}
+            selectedCameraName={selectedCameraName}
+            setSelectedCameraName={setSelectedCameraName}
+            selectedDistrict={selectedDistrict}
+            setSelectedDistrict={setSelectedDistrict}
+            selectedWard={selectedWard}
+            setSelectedWard={setSelectedWard}
+            selectedStreet={selectedStreet}
+            setSelectedStreet={setSelectedStreet}
+            selectedAdmin={selectedAdmin}
+            setSelectedAdmin={setSelectedAdmin}
+            uniqueValues={uniqueValues}
+            selectedYear={selectedYear}
+            setSelectedYear={setSelectedYear}
+            selectedMonth={selectedMonth}
+            setSelectedMonth={setSelectedMonth}
+          />
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Camera Name</label>
-          <select
-            value={selectedCameraName}
-            onChange={(e) => setSelectedCameraName(e.target.value)}
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-          >
-            <option value="">All</option>
-            {uniqueValues('cameraDetails.cameraName').map(cameraName => (
-              <option key={cameraName} value={cameraName}>{cameraName}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">City</label>
-          <select
-            value={selectedCity}
-            onChange={(e) => setSelectedCity(e.target.value)}
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-          >
-            <option value="">All</option>
-            {uniqueValues('location.city').map(city => (
-              <option key={city} value={city}>{city}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">District</label>
-          <select
-            value={selectedDistrict}
-            onChange={(e) => setSelectedDistrict(e.target.value)}
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-          >
-            <option value="">All</option>
-            {uniqueValues('location.district').map(district => (
-              <option key={district} value={district}>{district}</option>
-            ))}
-          </select>
-        </div>
+        <button
+          onClick={exportToCSV}
+          className="bg-blue-900 text-white py-2 px-4 rounded-md inline-flex"
+        >
+          Export to CSV
+        </button>
       </div>
 
       {isLoading ? (
@@ -124,24 +202,29 @@ export default function AccidentsPage() {
               <th className="text-left">Time Detected</th>
               <th className="text-left">Camera Name</th>
               <th className="text-left">Location</th>
-              <th className="text-left">Status</th>
-              <th className="text-left">Processed By</th>
               <th className="text-left">Screenshot</th>
+              <th className="text-left">Processed By</th>
+              <th className="text-left">Status</th>
             </tr>
           </thead>
           <tbody>
             {filterAccidents().length > 0 ? (
               filterAccidents().map((accident) => (
                 <tr key={accident._id}>
-                  <td>{accident._id}</td>
+                  <td className="text-sm">{accident._id}</td>
                   <td>{formatDate(accident.time_detected)}</td>
-                  <td>{accident.cameraDetails?.cameraName || 'N/A'}</td>
-                  <td>{accident.location}</td>
-                  <td>{accident.status}</td>
-                  <td>{accident.processedBy?.name || 'N/A'}</td>
+                  <td>{accident.cameraId?.cameraName || 'N/A'}</td>
+                  <td>{accident.cameraId?.cameraFullAddress}</td>
                   <td>
-                    <img src={accident.screenshot} alt="Screenshot" className="w-20 h-20 object-cover" />
+                    <img
+                      src={accident.screenshot}
+                      alt="Screenshot"
+                      className="w-20 h-20 object-cover cursor-pointer"
+                      onClick={() => handleImageClick(accident.screenshot)}
+                    />
                   </td>
+                  <td>{accident.processedBy?.name || 'N/A'}</td>
+                  <td>{accident.status}</td>
                 </tr>
               ))
             ) : (
@@ -152,6 +235,9 @@ export default function AccidentsPage() {
           </tbody>
         </table>
       )}
+      <ImageEnlarger show={showModal} onClose={handleCloseModal}>
+        <img src={modalImage} alt="Expanded screenshot" className="w-full h-auto" />
+      </ImageEnlarger>
     </Layout>
   );
 }

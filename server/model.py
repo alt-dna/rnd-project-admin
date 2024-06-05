@@ -11,7 +11,6 @@ db = client['test']
 
 cameras_collection = db['cameras']
 accidents_collection = db['accidents']
-admins_collection = db['admins']
 
 
 # print(client.list_database_names())

@@ -13,6 +13,8 @@
     "@react-google-maps/api": "^2.19.3",
     "axios": "^1.6.8",
     "leaflet": "^1.9.4",
+    "less": "^4.2.0",
+    "less-loader": "^12.2.0",
     "mongodb": "^6.6.1",
     "next": "14.2.3",
     "next-auth": "^4.24.7",
@@ -20,7 +22,9 @@
     "react": "^18",
     "react-dom": "^18",
     "react-leaflet": "^4.2.1",
-    "react-places-autocomplete": "^7.3.0"
+    "react-papaparse": "^4.4.0",
+    "react-places-autocomplete": "^7.3.0",
+    "recharts": "^2.13.0-alpha.4"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.19",

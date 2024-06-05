@@ -1,22 +1,22 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose from 'mongoose';
 
-const AccidentSchema = new Schema({
+const AccidentSchema = new mongoose.Schema({
   time_detected: { type: Date, required: true },
-  processedBy: {
-    userId: { type: String, required: false },
-    userName: { type: String, required: false }
+  cameraId: { type: mongoose.Schema.Types.ObjectId, ref: 'Camera' },
+  cameraDetails: {
+    cameraName: String,
+    cameraFullAddress: String,
   },
-  cameraId: { type: Schema.Types.ObjectId, ref: 'Camera', required: true },
-  location: {
-    city: { type: String, required: true },
-    district: { type: String, required: true },
-    ward: { type: String, required: true },
-    street: { type: String, required: true },
-    fullAddress: { type: String, required: true }
-  },
-  status: { type: String, enum: ['pending', 'processed'], required: true, default: 'pending' },
+  location: String,
+  status: { type: String, default: 'pending' },
   isFalseAlarm: { type: Boolean, default: false },
-  screenshot: { type: String, required: true }
-}, { timestamps: true });
+  screenshot: String,
+  processedBy: {
+    userId: String,
+    userName: String,
+    email: String,
+    image: String
+  }
+});
 
 export const Accident = mongoose.models.Accident || mongoose.model('Accident', AccidentSchema);
